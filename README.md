@@ -1,10 +1,9 @@
 <div align="center">
 
-# ⚡ Rootstock Foundry Deployer Action
+# Rootstock Foundry Deployer Action
 
 **The zero-friction GitHub Action for deploying Foundry smart contracts to Rootstock.**
 
-[![Test Action](https://github.com/rsksmart/rootstock-foundry-action/actions/workflows/test-action.yml/badge.svg)](https://github.com/rsksmart/rootstock-foundry-action/actions/workflows/test-action.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rootstock](https://img.shields.io/badge/Rootstock-Mainnet%20%7C%20Testnet-orange)](https://rootstock.io)
 
@@ -15,7 +14,7 @@
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 Copy this into your project's `.github/workflows/deploy.yml`:
 
@@ -50,7 +49,7 @@ Add your `DEPLOYER_PRIVATE_KEY` to **Settings → Secrets and variables → Acti
 
 ---
 
-## 🧠 What This Action Solves
+## What This Action Solves
 
 Rootstock is EVM-compatible but has specific requirements that break standard Foundry CI setups:
 
@@ -64,7 +63,7 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 
 ---
 
-## 📥 Inputs
+## Inputs
 
 | Input | Required | Default | Description |
 |---|---|---|---|
@@ -77,7 +76,7 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 | `min_balance` | ❌ | `10000000000000000` | Minimum deployer balance in wei required before deploy (0.01 RBTC) |
 | `extra_args` | ❌ | `''` | Additional flags passed directly to `forge script` |
 
-## 📤 Outputs
+## Outputs
 
 | Output | Description |
 |---|---|
@@ -88,7 +87,7 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 
 ---
 
-## 🌐 Network Reference
+## Network Reference
 
 | Network | Chain ID | RPC URL | Explorer |
 |---|---|---|---|
@@ -97,11 +96,11 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 
 The action **auto-detects** the network from the `rpc_url` — you don't need to specify the chain ID manually.
 
-> 💧 **Need Testnet RBTC?** Use the [Rootstock Faucet](https://faucet.rootstock.io).
+>  **Need Testnet RBTC?** Use the [Rootstock Faucet](https://faucet.rootstock.io).
 
 ---
 
-## 🔐 Security Best Practices
+##  Security Best Practices
 
 **Never hardcode your private key.** Always use GitHub Secrets:
 
