@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  deploy-example.yml
+#
+#  Plug-and-Play example: Copy this file to your Foundry project's
+#  .github/workflows/ directory and fill in your secrets.
+#
+#  Prerequisites in your repository:
+#    1. Add DEPLOYER_PRIVATE_KEY to GitHub Secrets
+#    2. Ensure your Foundry project has a deploy script at script/Deploy.s.sol
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy to Rootstock
+
+on:
+  push:
+    branches:
+      - main        # Deploy to Mainnet on main branch merges
+  workflow_dispatch:  # Allow manual triggers from the GitHub UI
+    inputs:
+      network:
+        description: 'Target network (mainnet or testnet)'
+        required: true
+        default: 'testnet'
+        type: choice
+        options:
+          - testnet
+          - mainnet
+
+jobs:
+  deploy:
+    name: Deploy Smart Contracts
+    runs-on: ubuntu-latest
+    # Protect Mainnet deployments — require approval in GitHub Environments
+    # environment: production   # Uncomment and configure for Mainnet
+
+    outputs:
+      contract_address: ${{ steps.deploy.outputs.contract_address }}
+      transaction_hash: ${{ steps.deploy.outputs.transaction_hash }}
+      explorer_url:     ${{ steps.deploy.outputs.explorer_url }}
+
+    steps:
+      # ── 1. Checkout your smart contract repository ──────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # Important for Foundry lib/ dependencies
+
+      # ── 2. Deploy to Rootstock using this Action ─────────────────────────
+      - name: Deploy to Rootstock Testnet
+        id: deploy
+        uses: rsksmart/rootstock-foundry-action@v1  # Pin to a version tag
+        with:
+          # ── Required inputs ──────────────────────────────────────────────
+          rpc_url:     'https://public-node.testnet.rsk.co'   # Testnet
+          # rpc_url:   'https://public-node.rsk.co'           # Mainnet
+          private_key: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          script_path: 'script/Deploy.s.sol'
+
+          # ── Optional: for targeted Blockscout verification ───────────────
+          contract_name: 'MyToken'      # Name of your primary contract
+
+          # ── Optional: safety & gas tuning ───────────────────────────────
+          gas_estimate_multiplier: '130'             # 30% buffer (default)
+          min_balance:             '10000000000000000'  # 0.01 RBTC (default)
+
+          # ── Optional: additional forge flags ────────────────────────────
+          # extra_args: '--slow'    # Add --slow for congested networks
+
+      # ── 3. Use the outputs in subsequent steps ───────────────────────────
+      - name: Print deployment summary
+        run: |
+          echo "════════════════════════════════════════"
+          echo "  Deployment Complete"    
+          echo "════════════════════════════════════════"
+          echo "  Contract Address : ${{ steps.deploy.outputs.contract_address }}"
+          echo "  Transaction Hash : ${{ steps.deploy.outputs.transaction_hash }}"
+          echo "  Explorer URL     : ${{ steps.deploy.outputs.explorer_url }}"
+          echo "════════════════════════════════════════"
+
+      # ── 4. (Optional) Update your frontend or notify your team ──────────
+      # - name: Update frontend config
+      #   run: |
+      #     echo "CONTRACT_ADDRESS=${{ steps.deploy.outputs.contract_address }}" >> .env.production
+      #     # push updated .env / open a PR / dispatch another workflow
+      #
+      # - name: Notify Slack
+      #   uses: slackapi/slack-github-action@v1
+      #   with:
+      #     payload: >
+      #       {"text": "Deployed to Rootstock: ${{ steps.deploy.outputs.contract_address }}"}
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

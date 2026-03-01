@@ -1,0 +1,99 @@
+name: 'Rootstock Foundry Deployer'
+description: 'Automated Foundry deployments pre-configured for Rootstock Mainnet (Chain 30) & Testnet (Chain 31). No more --legacy errors.'
+author: 'Rootstock (RSK)'
+
+branding:
+  icon: 'zap'
+  color: 'orange'
+
+# ─────────────────────────────────────────────
+#  INPUTS
+# ─────────────────────────────────────────────
+inputs:
+  rpc_url:
+    description: |
+      Rootstock RPC endpoint URL.
+      Mainnet: https://public-node.rsk.co
+      Testnet: https://public-node.testnet.rsk.co
+    required: true
+
+  private_key:
+    description: |
+      Private key of the deployer account (with RBTC for gas).
+      Always reference via secrets: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+    required: true
+
+  script_path:
+    description: |
+      Path to the Foundry deploy script relative to the repo root.
+      Example: script/Deploy.s.sol
+    required: true
+
+  contract_name:
+    description: |
+      Name of the primary contract to verify on Blockscout.
+      Example: MyToken
+      Leave blank to skip targeted verification (full script verification still runs).
+    required: false
+    default: ''
+
+  verifier_type:
+    description: |
+      Verification provider. Default is 'blockscout' (Rootstock Explorer).
+      Override to 'etherscan' only if you are using a custom Etherscan-compatible endpoint.
+    required: false
+    default: 'blockscout'
+
+  gas_estimate_multiplier:
+    description: |
+      Percentage multiplier applied to Foundry's gas estimate.
+      Default 130 adds a 30% buffer — recommended for Rootstock to avoid out-of-gas CI failures.
+    required: false
+    default: '130'
+
+  min_balance:
+    description: |
+      Minimum deployer account balance required before deployment (in wei).
+      Default: 10000000000000000 (0.01 RBTC).
+      Fail-fast guard: emits a human-readable error instead of a cryptic RPC error.
+    required: false
+    default: '10000000000000000'
+
+  extra_args:
+    description: |
+      Additional flags to pass directly to `forge script`.
+      Example: --slow --skip-simulation
+    required: false
+    default: ''
+
+# ─────────────────────────────────────────────
+#  OUTPUTS
+# ─────────────────────────────────────────────
+outputs:
+  contract_address:
+    description: 'Address of the first deployed contract, parsed from the Foundry broadcast log.'
+
+  transaction_hash:
+    description: 'Transaction hash of the deployment broadcast.'
+
+  chain_id:
+    description: 'Chain ID used for deployment (30 = Mainnet, 31 = Testnet).'
+
+  explorer_url:
+    description: 'Direct Blockscout Explorer URL to the deployed contract.'
+
+# ─────────────────────────────────────────────
+#  RUNTIME — Docker
+# ─────────────────────────────────────────────
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    INPUT_RPC_URL: ${{ inputs.rpc_url }}
+    INPUT_PRIVATE_KEY: ${{ inputs.private_key }}
+    INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+    INPUT_CONTRACT_NAME: ${{ inputs.contract_name }}
+    INPUT_VERIFIER_TYPE: ${{ inputs.verifier_type }}
+    INPUT_GAS_ESTIMATE_MULTIPLIER: ${{ inputs.gas_estimate_multiplier }}
+    INPUT_MIN_BALANCE: ${{ inputs.min_balance }}
+    INPUT_EXTRA_ARGS: ${{ inputs.extra_args }}

@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────
+#  test-action.yml — CI for the rootstock-foundry-action itself
+#
+#  Runs on every push and PR:
+#    1. Lint entrypoint.sh with shellcheck
+#    2. Validate all YAML files (action.yml, examples)
+#    3. Build the Docker image to catch Dockerfile errors early
+# ─────────────────────────────────────────────────────────────────
+name: Test Action
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ───────────────────────────────────────
+  #  Job 1: Lint the shell script
+  # ───────────────────────────────────────
+  shellcheck:
+    name: ShellCheck — entrypoint.sh
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint entrypoint.sh
+        run: shellcheck --severity=warning src/entrypoint.sh
+
+  # ───────────────────────────────────────
+  #  Job 2: Validate YAML files
+  # ───────────────────────────────────────
+  yaml-lint:
+    name: YAML Lint — action.yml & examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint action.yml
+        run: yamllint action.yml
+
+      - name: Lint example workflow
+        run: yamllint examples/deploy-example.yml
+
+  # ───────────────────────────────────────
+  #  Job 3: Build the Docker image
+  # ───────────────────────────────────────
+  docker-build:
+    name: Docker Build — verify image compiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: rootstock-foundry-action:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ───────────────────────────────────────
+  #  Job 4: Dry-run check (no broadcast)
+  # ───────────────────────────────────────
+  dry-run-check:
+    name: Action Syntax — validate action.yml inputs/outputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate action.yml structure
+        run: |
+          python3 -c "
+          import yaml, sys
+
+          with open('action.yml') as f:
+              doc = yaml.safe_load(f)
+
+          required_keys = ['name', 'description', 'inputs', 'outputs', 'runs']
+          for key in required_keys:
+              if key not in doc:
+                  print(f'FAIL: Missing top-level key: {key}')
+                  sys.exit(1)
+
+          required_inputs = ['rpc_url', 'private_key', 'script_path']
+          for inp in required_inputs:
+              if inp not in doc['inputs']:
+                  print(f'FAIL: Missing required input: {inp}')
+                  sys.exit(1)
+
+          required_outputs = ['contract_address', 'transaction_hash', 'chain_id']
+          for out in required_outputs:
+              if out not in doc['outputs']:
+                  print(f'FAIL: Missing output: {out}')
+                  sys.exit(1)
+
+          if doc['runs']['using'] != 'docker':
+              print('FAIL: runs.using must be docker')
+              sys.exit(1)
+
+          print('action.yml structure OK')
+          "
