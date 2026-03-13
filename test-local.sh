@@ -27,23 +27,18 @@ if [ -z "$TEST_PRIVATE_KEY" ]; then
 fi
 
 # 2. Setup a temporary dummy Foundry project
-DUMMY_DIR="/tmp/rootstock_dummy_project"
+DUMMY_DIR="$PWD/.dummy_project"
 echo -e "${CYAN}>> Setting up temporary Foundry project at $DUMMY_DIR...${NC}"
 
 rm -rf "$DUMMY_DIR"
-mkdir -p "$DUMMY_DIR/src"
-mkdir -p "$DUMMY_DIR/script"
+mkdir -p "$DUMMY_DIR"
 
-# Minimal foundry module
-cat > "$DUMMY_DIR/foundry.toml" << 'EOF'
-[profile.default]
-src = 'src'
-out = 'out'
-libs = ['lib']
-EOF
+cd "$DUMMY_DIR"
+# Initialize a minimal foundry project using forge
+forge init --no-git --force
 
-# Minimal contract
-cat > "$DUMMY_DIR/src/Counter.sol" << 'EOF'
+# Overwrite with minimal contract
+cat > "src/Counter.sol" << 'EOF'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -55,22 +50,15 @@ contract Counter {
 }
 EOF
 
-# Minimal script
-cat > "$DUMMY_DIR/script/Counter.s.sol" << 'EOF'
+# Use standard script instead of manual VM wrapper
+cat > "script/Counter.s.sol" << 'EOF'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import {Script} from "forge-std/Script.sol";
 import {Counter} from "../src/Counter.sol";
 
-// Dummy vm interface to avoid full std import
-interface Vm {
-    function startBroadcast() external;
-    function stopBroadcast() external;
-}
-
-contract CounterScript {
-    Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    
+contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
         new Counter();
@@ -79,6 +67,8 @@ contract CounterScript {
 }
 EOF
 
+cd - > /dev/null
+
 # 3. Build the Docker image natively
 echo -e "\n${CYAN}>> Building Docker image (rootstock-foundry-action:local)...${NC}"
 docker build -t rootstock-foundry-action:local .
@@ -86,6 +76,9 @@ docker build -t rootstock-foundry-action:local .
 # 4. Run the container just like GitHub Actions would
 echo -e "\n${CYAN}>> Running Action Simulator...${NC}"
 echo -e "${YELLOW}Note: We are passing Testnet RPC by default.${NC}\n"
+
+# Pre-create the output file so Docker mounts a file, not a directory
+touch "$DUMMY_DIR/outputs.txt"
 
 # GitHub Actions sets GITHUB_WORKSPACE and mounts it to /github/workspace
 docker run --rm \
@@ -96,7 +89,7 @@ docker run --rm \
     -e INPUT_PRIVATE_KEY="$TEST_PRIVATE_KEY" \
     -e INPUT_SCRIPT_PATH="script/Counter.s.sol" \
     -e INPUT_GAS_ESTIMATE_MULTIPLIER="130" \
-    -e INPUT_MIN_BALANCE="10000000000000000" \
+    -e INPUT_MIN_BALANCE="100000000000000" \
     -e GITHUB_OUTPUT="/github/outputs.txt" \
     rootstock-foundry-action:local || {
         echo -e "\n${RED}Action failed! (If it failed at the balance check due to the dummy key, that means the script logic works perfectly up to that point.)${NC}"
@@ -108,8 +101,18 @@ docker run --rm \
         fi
     }
 
-echo -e "\n${CYAN}>> Cleaning up...${NC}"
+echo -e "\n${CYAN}>> Checking Outputs...${NC}"
 cat "$DUMMY_DIR/outputs.txt" || true
+
+if [ "$TEST_PRIVATE_KEY" != "0x0000000000000000000000000000000000000000000000000000000000000001" ]; then
+    grep "contract_address=" "$DUMMY_DIR/outputs.txt" || { echo -e "${RED}Missing contract_address${NC}"; exit 1; }
+    grep "transaction_hash=" "$DUMMY_DIR/outputs.txt" || { echo -e "${RED}Missing transaction_hash${NC}"; exit 1; }
+    grep "chain_id=" "$DUMMY_DIR/outputs.txt" || { echo -e "${RED}Missing chain_id${NC}"; exit 1; }
+    grep "explorer_url=" "$DUMMY_DIR/outputs.txt" || { echo -e "${RED}Missing explorer_url${NC}"; exit 1; }
+    echo -e "${GREEN}All outputs validated successfully.${NC}"
+fi
+
+echo -e "\n${CYAN}>> Cleaning up...${NC}"
 rm -rf "$DUMMY_DIR"
 
 echo -e "\n${GREEN}Test script completed.${NC}"

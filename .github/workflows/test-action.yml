@@ -107,7 +107,7 @@ jobs:
                   print(f'FAIL: Missing required input: {inp}')
                   sys.exit(1)
 
-          required_outputs = ['contract_address', 'transaction_hash', 'chain_id']
+          required_outputs = ['contract_address', 'transaction_hash', 'chain_id', 'explorer_url']
           for out in required_outputs:
               if out not in doc['outputs']:
                   print(f'FAIL: Missing output: {out}')

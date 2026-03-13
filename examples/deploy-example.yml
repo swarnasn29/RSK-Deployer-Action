@@ -13,8 +13,8 @@ name: Deploy to Rootstock
 on:
   push:
     branches:
-      - main        # Deploy to Mainnet on main branch merges
-  workflow_dispatch:  # Allow manual triggers from the GitHub UI
+      - main        # Pushes to main use testnet by default (workflow_dispatch.inputs not available on push)
+  workflow_dispatch:  # Manual triggers can choose network via the input below
     inputs:
       network:
         description: 'Target network (mainnet or testnet)'
@@ -50,8 +50,7 @@ jobs:
         uses: rsksmart/rootstock-foundry-action@v1  # Pin to a version tag
         with:
           # ── Required inputs ──────────────────────────────────────────────
-          rpc_url:     'https://public-node.testnet.rsk.co'   # Testnet
-          # rpc_url:   'https://public-node.rsk.co'           # Mainnet
+          rpc_url:     ${{ github.event.inputs.network == 'mainnet' && 'https://public-node.rsk.co' || 'https://public-node.testnet.rsk.co' }}
           private_key: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           script_path: 'script/Deploy.s.sol'
 
@@ -60,7 +59,7 @@ jobs:
 
           # ── Optional: safety & gas tuning ───────────────────────────────
           gas_estimate_multiplier: '130'             # 30% buffer (default)
-          min_balance:             '10000000000000000'  # 0.01 RBTC (default)
+          min_balance:             '100000000000000'    # 0.0001 RBTC (default)
 
           # ── Optional: additional forge flags ────────────────────────────
           # extra_args: '--slow'    # Add --slow for congested networks

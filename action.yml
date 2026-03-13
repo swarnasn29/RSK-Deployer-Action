@@ -54,10 +54,10 @@ inputs:
   min_balance:
     description: |
       Minimum deployer account balance required before deployment (in wei).
-      Default: 10000000000000000 (0.01 RBTC).
+      Default: 100000000000000 (0.0001 RBTC).
       Fail-fast guard: emits a human-readable error instead of a cryptic RPC error.
     required: false
-    default: '10000000000000000'
+    default: '100000000000000'
 
   extra_args:
     description: |

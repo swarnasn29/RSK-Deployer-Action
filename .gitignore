@@ -19,7 +19,6 @@ cache/
 broadcast/
 
 # Docker
-.dockerignore
 
 # Node (if tooling is added later)
 node_modules/

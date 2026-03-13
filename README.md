@@ -37,7 +37,7 @@ jobs:
         id: deploy
         uses: rsksmart/rootstock-foundry-action@v1
         with:
-          rpc_url:     'https://public-node.testnet.rsk.co'
+          rpc_url:     'https://public-node.rsk.co'
           private_key: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           script_path: 'script/Deploy.s.sol'
 
@@ -73,7 +73,7 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 | `contract_name` | ❌ | `''` | Primary contract name for targeted Blockscout verification |
 | `verifier_type` | ❌ | `blockscout` | Verification provider (`blockscout` or `etherscan`) |
 | `gas_estimate_multiplier` | ❌ | `130` | Gas estimate buffer percentage (130 = 30% over estimate) |
-| `min_balance` | ❌ | `10000000000000000` | Minimum deployer balance in wei required before deploy (0.01 RBTC) |
+| `min_balance` | ❌ | `100000000000000` | Minimum deployer balance in wei required before deploy (0.0001 RBTC) |
 | `extra_args` | ❌ | `''` | Additional flags passed directly to `forge script` |
 
 ## Outputs
