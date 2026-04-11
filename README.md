@@ -67,14 +67,16 @@ Rootstock is EVM-compatible but has specific requirements that break standard Fo
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `rpc_url` | ✅ | — | Rootstock RPC URL (Mainnet or Testnet) |
+| `rpc_url` | ✅ | — | Rootstock RPC URL (Mainnet or Testnet). Must start with `http://` or `https://`. |
 | `private_key` | ✅ | — | Deployer private key — always use `${{ secrets.* }}` |
-| `script_path` | ✅ | — | Path to Foundry deploy script, e.g. `script/Deploy.s.sol` |
-| `contract_name` | ❌ | `''` | Primary contract name for targeted Blockscout verification |
-| `verifier_type` | ❌ | `blockscout` | Verification provider (`blockscout` or `etherscan`) |
+| `script_path` | ✅ | — | Path to Foundry deploy script, e.g. `script/Deploy.s.sol`. Must not contain `..` path traversal segments. |
+| `contract_name` | ❌ | `''` | Primary contract name for targeted Blockscout verification. Must be a valid Solidity identifier (`^[a-zA-Z_][a-zA-Z0-9_]*$`). |
+| `verifier_type` | ❌ | `blockscout` | Verification provider (`blockscout` or `etherscan`). When set to `etherscan`, `etherscan_api_key` is required. |
 | `gas_estimate_multiplier` | ❌ | `130` | Gas estimate buffer percentage (130 = 30% over estimate) |
 | `min_balance` | ❌ | `100000000000000` | Minimum deployer balance in wei required before deploy (0.0001 RBTC) |
-| `extra_args` | ❌ | `''` | Additional flags passed directly to `forge script` |
+| `extra_args` | ❌ | `''` | Additional flags passed directly to `forge script`. Tokens are validated — shell metacharacters (`;`, `\|`, `&`, `$`, `` ` ``, `<`, `>`) and the flags `--private-key`, `--rpc-url`, `--legacy` are rejected. |
+| `strict_gas_check` | ❌ | `false` | Set to `true` to **fail the action** when gas price is anomalously low (below Rootstock's 60 Mwei minimum). Recommended for Mainnet deployments. |
+| `etherscan_api_key` | ❌ | `''` | Etherscan API key. **Required** when `verifier_type: etherscan`. Ignored when using `blockscout`. Always use `${{ secrets.ETHERSCAN_API_KEY }}`. |
 
 ## Outputs
 
@@ -119,6 +121,24 @@ jobs:
 
 > ⚠️ This action never echoes your private key. We explicitly avoid `set -x` in our shell scripts to prevent secret exposure in logs.
 
+### self-hosted runner SSRF notice
+
+The `rpc_url` input is validated to start with `http://` or `https://`, then the **chain-ID is checked** to be 30 or 31 after the initial RPC call is made. In a **self-hosted runner** environment, a malicious `rpc_url` pointing to an internal network address could probe internal endpoints before the chain-ID check rejects it. Mitigations:
+
+- Use GitHub-hosted runners (`ubuntu-latest`) wherever possible.
+- If you use self-hosted runners, add an explicit allowlist of permitted Rootstock RPC domains in your runner's network egress policy.
+- Consider using `rpc_url: ${{ secrets.ROOTSTOCK_RPC_URL }}` so the URL is never editable via PR.
+
+### Docker image pinning
+
+The Docker base image is pinned to an **immutable SHA-256 digest** (not just a mutable `:latest` tag) to prevent supply-chain attacks from a compromised upstream push. The current pin is documented in the `Dockerfile` header. To update it, run:
+
+```sh
+docker manifest inspect ghcr.io/foundry-rs/foundry:latest
+```
+
+Copy the `config.digest` value, update the `FROM` line in `Dockerfile`, and open a PR. Automate this with [Renovate](https://docs.renovatebot.com/) by adding a `docker` datasource rule.
+
 ---
 
 ## 🔗 Using the Contract Address in Downstream Steps
@@ -155,7 +175,21 @@ jobs:
     contract_name:           'MyToken'
     gas_estimate_multiplier: '150'        # 50% buffer for congested networks
     min_balance:             '50000000000000000'  # Require 0.05 RBTC minimum
+    strict_gas_check:        'true'        # Fail if gas price is anomalously low
     extra_args:              '--slow'     # Space out transactions for reliability
+```
+
+### Use Etherscan-compatible verification
+
+```yaml
+- uses: rsksmart/rootstock-foundry-action@v1
+  with:
+    rpc_url:           ${{ secrets.ROOTSTOCK_RPC_URL }}
+    private_key:       ${{ secrets.MAINNET_PRIVATE_KEY }}
+    script_path:       'script/Deploy.s.sol'
+    contract_name:     'MyToken'
+    verifier_type:     'etherscan'
+    etherscan_api_key: ${{ secrets.ETHERSCAN_API_KEY }}   # Required for etherscan verifier
 ```
 
 ### Use a custom RPC (Alchemy, QuickNode, etc.)

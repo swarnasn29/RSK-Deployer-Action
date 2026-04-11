@@ -37,3 +37,20 @@ _Audit of 18 reported findings. Status as of current codebase._
 | 20 | **Example workflow misleading comment** | Fixed: comment now accurately states that pushes to `main` use the testnet RPC by default (since `workflow_dispatch` inputs are not available on `push` events). |
 
 ---
+
+## 🔒 Security Audit — Round 2 Resolutions (2026-04-10)
+
+_All 8 findings from the second peer-review were addressed. Severity levels: HIGH (H), MEDIUM (M), LOW (L)._
+
+| ID | Severity | Finding | Resolution | Files Changed |
+|----|----------|---------|------------|--------------|
+| H-1 | HIGH | **Unversioned Docker Base Image (Supply Chain Risk)** — `FROM ghcr.io/foundry-rs/foundry:latest` pulls a mutable tag | Pinned to an immutable SHA-256 digest: `FROM ghcr.io/foundry-rs/foundry:latest@sha256:89a052af62c612d0e05d2596f03edba77d7d904c4478b387a5dc6305821fe0a1`. Added a pinning policy comment in the `Dockerfile` header documenting how to update the digest. | `Dockerfile`, `README.md` |
+| H-2 | HIGH | **Command Injection via `extra_args` word-splitting** — `# shellcheck disable=SC2206` allowed unquoted expansion of `$EXTRA_ARGS`; blocklist was easily bypassed | Replaced the unquoted expansion with `IFS=' ' read -ra _raw_tokens <<< "$EXTRA_ARGS"` (safe word splitting). Each token is now validated against a shell metacharacter blocklist (`;`, `\|`, `&`, `$`, backtick, `<`, `>`) before being added to the command array. Forbidden flags (`--private-key`, `--rpc-url`, `--legacy`) are checked per-token via a `case` statement. | `src/entrypoint.sh` |
+| M-1 | MEDIUM | **No Path Traversal Validation on `script_path`** — input passed directly to `forge script` without checking for `..` segments | Added a `..` substring check before invoking forge. Additionally performs a `realpath -m` resolution against `$GITHUB_WORKSPACE` when available and aborts if the path escapes the workspace directory. | `src/entrypoint.sh` |
+| M-2 | MEDIUM | **`GITHUB_OUTPUT` Injection Risk** — simple `key=value` format is vulnerable to newline/`=` injection | Replaced all `echo "key=value"` writes with the GitHub-recommended heredoc delimiter syntax using `printf 'key<<_EOF_DELIM_\n%s\n_EOF_DELIM_\n'` to fully isolate multi-line values. | `src/entrypoint.sh` |
+| M-3 | MEDIUM | **`contract_name` Not Validated as Solidity Identifier** — a crafted value could inject additional forge flags | Added a strict regex validation `^[a-zA-Z_][a-zA-Z0-9_]*$` against `$CONTRACT_NAME` before the forge command is constructed. Invalid names produce a clear error message. | `src/entrypoint.sh` |
+| M-4 | MEDIUM | **RPC URL Accepts Any HTTP(S) Endpoint (SSRF Surface)** — only `http://`/`https://` prefix checked; internal network probing possible on self-hosted runners | Added a clear SSRF documentation comment in `entrypoint.sh`. Updated `README.md` with a dedicated "self-hosted runner SSRF notice" section recommending network egress allowlisting and storing the RPC URL in a GitHub Secret. The chain-ID check (must be 30 or 31) provides a hard stop after the first RPC call. | `src/entrypoint.sh`, `README.md` |
+| L-1 | LOW | **Gas Price Sanity Check Advisory Only** — action warned but continued even when gas price was below Rootstock's minimum | Added a new `strict_gas_check` input (default: `false`). When set to `true`, the action exits with code 1 when gas price is below the minimum instead of warning and continuing. Documented in `action.yml` and `README.md`. | `src/entrypoint.sh`, `action.yml`, `README.md` |
+| L-2 | LOW | **Hardcoded `--etherscan-api-key "none"`** — `"none"` is Blockscout-specific; would silently fail or confuse users with `verifier_type: etherscan` | The `--etherscan-api-key "none"` is now only passed when `$VERIFIER_TYPE == "blockscout"`. When `verifier_type: etherscan`, the new `etherscan_api_key` input is required (validated at startup) and passed as the real key. Setting `verifier_type: etherscan` without providing `etherscan_api_key` now fails fast with a clear error. | `src/entrypoint.sh`, `action.yml`, `README.md` |
+
+---

@@ -48,8 +48,14 @@ MIN_BALANCE="${INPUT_MIN_BALANCE:-100000000000000}"
 VERIFIER_TYPE="${INPUT_VERIFIER_TYPE:-blockscout}"
 EXTRA_ARGS="${INPUT_EXTRA_ARGS:-}"
 CONTRACT_NAME="${INPUT_CONTRACT_NAME:-}"
+STRICT_GAS_CHECK="${INPUT_STRICT_GAS_CHECK:-false}"  # L-1: optional strict gas price enforcement
+ETHERSCAN_API_KEY="${INPUT_ETHERSCAN_API_KEY:-}"      # L-2: real key required when verifier_type=etherscan
 
-# Basic Input Validation
+# ── Basic Input Validation ──────────────────────────────────────────────────
+
+# M-4 (SSRF): Validate rpc_url format. Note: for self-hosted runners, consider
+# an allowlist of known Rootstock RPC endpoints in your runner's network policy
+# since the HTTP call reaches the target before chain-ID validation occurs.
 if [[ ! "$INPUT_RPC_URL" =~ ^https?:// ]]; then
     error "rpc_url must start with http:// or https://"
     exit 1
@@ -67,10 +73,45 @@ if [[ ! "$VERIFIER_TYPE" =~ ^(blockscout|etherscan)$ ]]; then
     exit 1
 fi
 
-# Reject flag injection in extra_args 
-if [[ "$EXTRA_ARGS" == *"--private-key"* ]] || [[ "$EXTRA_ARGS" == *"--rpc-url"* ]] || [[ "$EXTRA_ARGS" == *"--legacy"* ]]; then
-    error "extra_args contains forbidden flags (--private-key, --rpc-url, or --legacy). These are managed by the action."
+# L-2: When verifier_type is etherscan, a real API key is required.
+if [[ "$VERIFIER_TYPE" == "etherscan" && -z "$ETHERSCAN_API_KEY" ]]; then
+    error "verifier_type is set to 'etherscan' but etherscan_api_key is not provided."
+    error "Please add the 'etherscan_api_key' input or switch verifier_type back to 'blockscout'."
     exit 1
+fi
+
+# M-3: Validate contract_name against a strict Solidity identifier pattern to
+# prevent injection of additional forge flags via a crafted contract_name value.
+if [[ -n "$CONTRACT_NAME" ]] && [[ ! "$CONTRACT_NAME" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    error "contract_name '${CONTRACT_NAME}' is not a valid Solidity identifier."
+    error "Must match ^[a-zA-Z_][a-zA-Z0-9_]*$ (letters, digits, underscores; cannot start with a digit)."
+    exit 1
+fi
+
+# H-2: Safe tokenization of extra_args.
+# Use read -ra to split on IFS (word-boundary safe) instead of unquoted
+# expansion ($EXTRA_ARGS). We also reject any token that contains shell
+# metacharacters (;, |, &, $, backtick, <, >) or the forbidden flag names.
+EXTRA_ARGS_ARRAY=()
+if [[ -n "$EXTRA_ARGS" ]]; then
+    # Tokenize properly, respecting quoting boundaries
+    IFS=' ' read -ra _raw_tokens <<< "$EXTRA_ARGS"
+    for _token in "${_raw_tokens[@]}"; do
+        # Reject shell metacharacters that could enable command injection
+        if [[ "$_token" =~ [\;\|\&\$\`\<\>] ]]; then
+            error "extra_args token '${_token}' contains a forbidden shell metacharacter."
+            error "Allowed characters exclude: ; | & \$ \` < >"
+            exit 1
+        fi
+        # Reject managed flags that must not be overridden
+        case "$_token" in
+            --private-key|--rpc-url|--legacy)
+                error "extra_args contains forbidden flag '${_token}'. This flag is managed by the action."
+                exit 1
+                ;;
+        esac
+        EXTRA_ARGS_ARRAY+=("$_token")
+    done
 fi
 
 echo ""
@@ -153,8 +194,17 @@ fi
 MIN_GAS_PRICE=60000000
 
 if [[ "$CURRENT_GAS_PRICE" -lt "$MIN_GAS_PRICE" ]] && [[ "$CURRENT_GAS_PRICE" -gt 0 ]]; then
+    # L-1: Gas price below Rootstock minimum. The strict_gas_check input allows
+    # callers to opt-in to hard failure instead of the default advisory warning.
     warn "Gas price (${CURRENT_GAS_PRICE} wei) is below the Rootstock minimum (${MIN_GAS_PRICE} wei)."
-    warn "This may indicate an RPC sync issue. Proceeding anyway, but watch for failures."
+    warn "This may indicate an RPC sync issue or a lagging node."
+    if [[ "$STRICT_GAS_CHECK" == "true" ]]; then
+        error "Halting: strict_gas_check is enabled and gas price is anomalously low."
+        error "Disable strict_gas_check or wait for the network gas price to recover."
+        exit 1
+    else
+        warn "Proceeding anyway. Set strict_gas_check: 'true' to fail on this condition."
+    fi
 else
     GAS_GWEI=$(echo "scale=4; $CURRENT_GAS_PRICE / 1000000000" | bc -l 2>/dev/null || echo "unknown")
     success "Gas price: ${CURRENT_GAS_PRICE} wei (~${GAS_GWEI} Gwei)"
@@ -225,6 +275,23 @@ info "    Verifier:            ${VERIFIER_TYPE}"
 info "    Transaction type:    Legacy (EIP-155 forced for Rootstock)"
 info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+# M-1: Path traversal guard on script_path.
+# Reject any path that contains '..' segments to prevent referencing files
+# outside the workspace. Within GitHub Actions the blast radius is limited to
+# the checked-out repo, but defense-in-depth requires explicit validation.
+if [[ "$INPUT_SCRIPT_PATH" == *".."* ]]; then
+    error "script_path must not contain '..' (path traversal detected): ${INPUT_SCRIPT_PATH}"
+    exit 1
+fi
+# Additionally resolve against GITHUB_WORKSPACE when available
+if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+    _resolved=$(realpath -m "${GITHUB_WORKSPACE}/${INPUT_SCRIPT_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$_resolved" && "$_resolved" != "${GITHUB_WORKSPACE}"* ]]; then
+        error "script_path resolves outside the workspace directory. Aborting."
+        exit 1
+    fi
+fi
+
 # Build the forge command. Using an array avoids word-splitting issues.
 FORGE_CMD=(
     forge script "$INPUT_SCRIPT_PATH"
@@ -238,15 +305,21 @@ FORGE_CMD=(
     --verifier-url "$EXPLORER_API"
 )
 
-# Append contract name if provided (targeted verification)
+# Append contract name if provided (targeted verification).
+# M-3: contract_name is already validated as a Solidity identifier above.
+# L-2: Only pass --etherscan-api-key for blockscout (which accepts "none");
+#       for etherscan, pass the real key validated at startup.
 if [[ -n "$CONTRACT_NAME" ]]; then
     FORGE_CMD+=(--target-contract "$CONTRACT_NAME")
-    FORGE_CMD+=(--etherscan-api-key "none")  # Blockscout doesn't require a real key
+    if [[ "$VERIFIER_TYPE" == "blockscout" ]]; then
+        FORGE_CMD+=(--etherscan-api-key "none")  # Blockscout does not require a real key
+    else
+        FORGE_CMD+=(--etherscan-api-key "$ETHERSCAN_API_KEY")
+    fi
 fi
 
-# Append any user-provided extra args
-# shellcheck disable=SC2206
-[[ -n "$EXTRA_ARGS" ]] && FORGE_CMD+=($EXTRA_ARGS)
+# H-2: Append safely-tokenized extra args (validated and split via read -ra above).
+[[ ${#EXTRA_ARGS_ARRAY[@]} -gt 0 ]] && FORGE_CMD+=("${EXTRA_ARGS_ARRAY[@]}")
 
 # Execute (no set -x to protect the private key)
 if ! "${FORGE_CMD[@]}"; then
@@ -313,11 +386,14 @@ if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
     EXPLORER_CONTRACT_URL="${EXPLORER_BASE}/address/${CONTRACT_ADDRESS}"
 fi
 
+# M-2: Use the GitHub-recommended heredoc delimiter syntax for GITHUB_OUTPUT.
+# This prevents injection of additional output keys if a value were to contain
+# newline characters or '=' signs (possible in adversarial edge cases).
 {
-    echo "contract_address=${CONTRACT_ADDRESS}"
-    echo "transaction_hash=${TX_HASH}"
-    echo "chain_id=${CHAIN_ID}"
-    echo "explorer_url=${EXPLORER_CONTRACT_URL}"
+    printf 'contract_address<<_EOF_DELIM_\n%s\n_EOF_DELIM_\n' "${CONTRACT_ADDRESS}"
+    printf 'transaction_hash<<_EOF_DELIM_\n%s\n_EOF_DELIM_\n' "${TX_HASH}"
+    printf 'chain_id<<_EOF_DELIM_\n%s\n_EOF_DELIM_\n'         "${CHAIN_ID}"
+    printf 'explorer_url<<_EOF_DELIM_\n%s\n_EOF_DELIM_\n'     "${EXPLORER_CONTRACT_URL}"
 } >> "$GITHUB_OUTPUT"
 
 # ─────────────────────────────────────────────────────────────────────────────

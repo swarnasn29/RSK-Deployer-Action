@@ -62,7 +62,27 @@ inputs:
   extra_args:
     description: |
       Additional flags to pass directly to `forge script`.
+      Tokens are safely tokenized (word-split via read -ra) and validated
+      against a metacharacter blocklist to prevent injection attacks (H-2).
       Example: --slow --skip-simulation
+    required: false
+    default: ''
+
+  strict_gas_check:
+    description: |
+      When set to 'true', the action will FAIL (exit 1) if the current network
+      gas price is below the Rootstock minimum (60 Mwei). By default the action
+      warns but continues, which is permissive for testnet use.
+      Set to 'true' for production / Mainnet deployments (L-1).
+    required: false
+    default: 'false'
+
+  etherscan_api_key:
+    description: |
+      API key for Etherscan-compatible verification endpoints.
+      REQUIRED when verifier_type is set to 'etherscan'.
+      Ignored (and not passed to forge) when verifier_type is 'blockscout' (L-2).
+      Always reference via secrets: ${{ secrets.ETHERSCAN_API_KEY }}
     required: false
     default: ''
 
@@ -97,3 +117,5 @@ runs:
     INPUT_GAS_ESTIMATE_MULTIPLIER: ${{ inputs.gas_estimate_multiplier }}
     INPUT_MIN_BALANCE: ${{ inputs.min_balance }}
     INPUT_EXTRA_ARGS: ${{ inputs.extra_args }}
+    INPUT_STRICT_GAS_CHECK: ${{ inputs.strict_gas_check }}
+    INPUT_ETHERSCAN_API_KEY: ${{ inputs.etherscan_api_key }}
